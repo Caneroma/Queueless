@@ -98,25 +98,7 @@ function liveBody(ticket, snapshot) {
 }
 
 export async function updateLiveQueue(ticket, snapshot) {
-  if (!SUPPORTED || Platform.OS !== 'android') return;
-  try {
-    await ensureChannel(LIVE_CHANNEL);
-    await notifications().scheduleNotificationAsync({
-      identifier: liveId(ticket.ticketId),
-      content: {
-        title: `${ticket.queueName} - #${ticket.number}`,
-        body: liveBody(ticket, snapshot),
-        sticky: true,
-        autoDismiss: false,
-        priority: 'default',
-        color: '#2453D4',
-        data: { ticketId: ticket.ticketId },
-      },
-      trigger: { channelId: LIVE_CHANNEL },
-    });
-  } catch {
-    // Unsupported OEM behavior or denied permission should not affect queue use.
-  }
+  // Disabled to prevent double notifications. Notifications only fire when called.
 }
 
 export async function clearLiveQueue(ticketId) {
@@ -124,7 +106,7 @@ export async function clearLiveQueue(ticketId) {
   try {
     await notifications().dismissNotificationAsync(liveId(ticketId));
   } catch {
-    // The notification may already have been dismissed by the user or the system.
+    // The notification may already have been dismissed.
   }
 }
 
@@ -132,22 +114,9 @@ export async function clearLiveQueue(ticketId) {
 // stacking a second one, even after the app has been restarted.
 const reminderId = (ticketId) => `leave-${ticketId}`;
 
-// Asks the phone's own scheduler to say "time to head back" at `atMs`. It then arrives even if
-// the app has been suspended in the meantime (development or production builds only).
+// Disabled to ensure only the actual call notification is sent to the user.
 export async function scheduleLeaveReminder(ticket, atMs) {
-  if (!SUPPORTED) return;
-  const seconds = Math.ceil((atMs - Date.now()) / 1000);
-  if (seconds < 1) return;
-  try {
-    await ensureChannel();
-    await notifications().scheduleNotificationAsync({
-      identifier: reminderId(ticket.ticketId),
-      content: contentFor('leave', ticket),
-      trigger: { type: 'timeInterval', seconds, ...(Platform.OS === 'android' ? { channelId: CHANNEL } : {}) },
-    });
-  } catch {
-    // the in-app banner still fires while the app is open
-  }
+  // In-app banner still handles leave alerts via useLeaveAlerts
 }
 
 export async function cancelLeaveReminder(ticketId) {
