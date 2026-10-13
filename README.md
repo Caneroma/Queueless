@@ -42,7 +42,8 @@ The customer app (join, live ticket, alerts) runs on a phone through Expo.
 **Customer**
 - Join by scanning the QR in-app, or by typing the 6-character code. Optional first name.
 - Live ticket: your number, who is being served, people ahead, estimated wait. The screen changes colour with state: blue waiting, yellow your turn.
-- **Leave-in timer.** Say how far away you are (5, 10, 20 or 30 min) and the ticket tells you when to set off, counting down and following the line.
+- **Leave-in timer.** Say how far away you are (5, 10, 20 or 30 min) and the ticket tells you when to set off, counting down and following the line. The alert shows while the app is open.
+- Scan a walk-in's ticket QR to link a ticket the receptionist issued to your own phone.
 - A buzz and a "Head back to the shop" prompt when 2 or fewer people are ahead. A "You are next" alert, then a buzzer and a banner on any screen when you are called, plus a system notification in development or production builds. The buzzer follows the phone's volume and silent switch.
 - When the shop has no receptionist, you are asked to pass the word on to a paper-token holder sitting right before or after you.
 - Hold tickets in several queues at once, with a My tickets screen to open or leave each.
@@ -51,7 +52,7 @@ The customer app (join, live ticket, alerts) runs on a phone through Expo.
 **Owner** (phone or browser)
 - Open a queue in seconds: shop name and a starting minutes-per-person estimate.
 - Next, Skip, Recall a no-show to the back of the line, Pause joining, Close with a day summary.
-- Named waiting list, visible only to the owner, with paper tokens tagged.
+- Named waiting list, visible only to the owner, with paper tokens tagged. The owner's phone buzzes for a paper token being called or next.
 - **Walk-ins.** Add a customer who cannot scan: a paper token (hand over the number; this phone buzzes when it is their turn) or a digital token (they scan a QR to put it on their own phone).
 - **No receptionist** setting: neighbours of a paper token are notified to pass the word on.
 
@@ -157,8 +158,9 @@ Sockets: `room:join` (client to server, then a fresh snapshot comes back) and `q
 |---|---|---|
 | Banner, buzzer and haptics while the app is open | Yes | Yes |
 | System notification while the app is backgrounded | No | Yes |
-| Leave-in reminder scheduled on the phone | No | Yes |
 | Server push to a closed app: "You are next", "Your turn", and the paper-token request | No | Yes, with an EAS project id (Android also needs Firebase Cloud Messaging credentials) |
+
+Scheduled leave-in reminders are off. The leave-in alert shows while the app is open.
 
 Expo Go cannot load the notifications library on Android, so the app skips it there. Push is best effort and never delays the line.
 
@@ -193,9 +195,9 @@ PRD.md  VIVA.md               Product specification · presentation guide
 - No accounts: the owner key lives on one device, so a lost phone loses the queue, and the phone app and web console cannot share a queue.
 - Built for a trusted network: no HTTPS, rate limiting or abuse protection.
 - The estimate does not model different service types.
-- The leave-in time is a prediction from the last update; a reminder already scheduled on a sleeping phone cannot be revised.
+- The leave-in time is a prediction from the last update, and the alert shows only while the app is open.
 - A paper token's holder is called out by the receptionist; the app only rings the owner's phone and cannot reach someone with no phone.
-- Verified through scripted end-to-end checks, but no automated test suite is committed yet.
+- No automated test suite is committed yet; the flows were checked with scripted end-to-end runs.
 
 **Next**
 - Owner accounts, so queues survive a lost device and work across phone and browser
@@ -205,6 +207,6 @@ PRD.md  VIVA.md               Product specification · presentation guide
 
 ## Docs and contributors
 
-[`PRD.md`](PRD.md) is the product and interface specification. [`VIVA.md`](VIVA.md) splits the project into four parts with presentation questions.
+[`PRD.md`](PRD.md) is the product and interface specification, updated to what is built. [`VIVA.md`](VIVA.md) splits the project into four parts with presentation questions.
 
 Built by **Subhaan Shaikh** and **Rijhan**.

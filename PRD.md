@@ -1,6 +1,6 @@
 # Queueless: Walk-In Queue
 
-A digital token system for small clinics and shops. The owner opens a queue, customers scan a QR code to get a token, and everyone sees their live position and estimated wait on their phone.
+A digital token system for small clinics and shops. The owner opens a queue, customers scan a QR code to get a token, and everyone sees their live position and estimated wait on their phone. Customers who have no phone or cannot scan are added by the receptionist as a paper token, and the owner's phone buzzes when it is their turn.
 
 Academic mini project. Never deployed. Built to be easy to explain.
 
@@ -15,7 +15,7 @@ Read these before writing any code. They exist to keep the project small.
 1. KISS wins every tie. If two designs work, build the one with fewer files and fewer moving parts.
 2. Use only the libraries listed in section 9. Do not add others (no Redux, no TypeScript, no UI kits, no auth libraries, no Docker).
 3. No user accounts. The owner is identified by a random `ownerKey` stored on their phone. The customer is identified by their ticket id stored on their phone.
-4. One active queue per owner device. One active ticket per customer device.
+4. One active queue per owner device. A customer device holds one ticket per queue, and can hold tickets in several queues at once.
 5. Keep each source file under about 150 lines. If one grows, split it.
 6. Follow section 7 exactly. Do not substitute default styles, default fonts, stock icons-in-circles, or generic card layouts. The ticket, the rolling number and the line dots are the design; build them properly before polishing anything else.
 7. Build in the order of section 10. Do not start a step until the previous step's "Done when" check passes.
@@ -33,7 +33,8 @@ Big queue-management systems exist, but they need hardware, accounts and setup. 
 
 | Who | What they do |
 |---|---|
-| Owner | Starts a queue, shows a QR code, calls the next person, skips no-shows, closes the queue |
+| Owner | Starts a queue, shows a QR code, calls the next person, skips no-shows, adds walk-ins, closes the queue |
+| Receptionist (the owner or staff at the counter) | Adds a customer who cannot scan as a paper token, or as a digital ticket they link by QR |
 | Customer | Scans the QR (or types a 6-character code), gets a token, watches their position and wait time update live, gets a buzz when it is their turn |
 
 Everything the customer sees updates without refreshing, through Socket.io.
@@ -47,7 +48,8 @@ Goals
 - A codebase a student can walk through in a ten-minute viva.
 
 Non-goals (do not build)
-- Login, passwords, OTP, payments, SMS, push notifications.
+- Login, passwords, OTP, payments, SMS.
+- Push notifications were first out of scope. They were added later as best-effort Expo push (see 5.2 and section 13).
 - Multiple counters, staff roles, appointments, analytics dashboards.
 - Deployment, HTTPS, rate limiting, cloud hosting.
 - Dark mode, tablet layouts, internationalisation.
@@ -79,11 +81,17 @@ Non-goals (do not build)
 | Line dots | The line is drawn as dots, one per person ahead, so people see it shrink. | About 40 lines |
 | Resume where you left off | The app opens straight on the ticket or the dashboard, with no home screen in the way. | Three checks on launch |
 | Rejoin on reopen | If the customer closes the app and comes back, their ticket is still there. | AsyncStorage |
+| Walk-in desk | The receptionist adds a customer with no phone. A paper token is a number on a slip; a digital one is linked to the customer's phone by QR. Both take numbers from the same atomic counter, so the line stays fair. | One endpoint, one sheet |
+| Buzzer | The owner's phone buzzes when a paper token is called or is next. Customers hear a buzz and see a "You are next" alert. The buzzer follows the phone's volume and silent switch. | `expo-audio` and `Vibration` |
+| No-receptionist setting | When the shop has nobody at the counter, the phone customers directly before and after a paper token are asked to pass the word on. Each pair is asked once. | One flag, one push |
+| Leave-in timer | The customer says how far away they are (5, 10, 20 or 30 min) and the ticket says when to set off. Alerts show while the app is open. | Client-side, no server state |
+| Several tickets | One phone can hold one ticket in each of several queues, with a My tickets list. | AsyncStorage list |
+| Server push | When a number is called or is next, the server pushes to a closed app using the Expo push service. Best effort, and it never blocks the queue. | `EXPO_PUSH_URL`, one token per ticket |
 
-### 5.3 Stretch (only if everything above is finished and tested)
+### 5.3 Stretch
 
-- A "shop display" web page that shows only the big now-serving number. Not required.
-- Owner can edit the default service time while the queue is open.
+- Built: a shop display web page at `/?display=CODE`, showing the serving number, the next five numbers and the join QR. Public, numbers only.
+- Not built: owner can edit the default service time while the queue is open.
 
 Do not build anything else.
 
@@ -482,6 +490,7 @@ REST is used for actions (create, join, next, skip). Sockets are used only for p
 | `ownerKey` | String | 24 random hex characters, never sent in public responses |
 | `status` | String | `open`, `paused`, `closed` |
 | `defaultServiceMin` | Number | Owner's starting guess |
+| `noReceptionist` | Boolean | Default `false`. When true, phone customers beside a paper token are asked to pass the word on |
 | `lastNumber` | Number | Counter for token numbers, starts at 0 |
 | `createdAt`, `closedAt` | Date | |
 
@@ -492,6 +501,9 @@ REST is used for actions (create, join, next, skip). Sockets are used only for p
 | `number` | Number | Token shown to people |
 | `sortKey` | Number | Equals `number` at creation. Recall sets it to the current max plus 1, which puts the person at the back |
 | `name` | String | Optional, owner-only |
+| `kind` | String | `digital` (a phone ticket, or a walk-in linked by QR) or `physical` (a paper token). Default `digital` |
+| `relayed` | [Number] | Paper-token numbers this phone ticket has already been asked to pass on. Stops a repeat request |
+| `expoPushToken` | String | Optional. Registered by the phone for server push. Owner-only and never sent to other customers |
 | `status` | String | `waiting`, `serving`, `done`, `skipped`, `left` |
 | `joinedAt`, `calledAt`, `finishedAt` | Date | `calledAt` to `finishedAt` is the service time |
 
@@ -512,10 +524,13 @@ All responses are JSON. Owner routes require header `x-owner-key`.
 | `POST /api/queues/:code/next` | owner | | `snapshot` |
 | `POST /api/queues/:code/skip` | owner | | `snapshot` |
 | `POST /api/queues/:code/recall/:ticketId` | owner | | `snapshot` |
+| `POST /api/queues/:code/walkin` | owner | `{ name?, kind: 'physical' or 'digital' }` | `{ ticketId, number, kind, snapshot }` |
+| `POST /api/queues/:code/settings` | owner | `{ noReceptionist: bool }` | `snapshot` |
+| `POST /api/tickets/:id/notifications` | customer | `{ token }` | `{ ok: true }` |
 | `POST /api/queues/:code/pause` | owner | `{ paused: bool }` | `snapshot` |
 | `POST /api/queues/:code/close` | owner | | `{ summary }` |
 
-Status codes: 400 invalid input, 403 wrong owner key, 404 unknown code or ticket, 409 queue closed/paused or duplicate join.
+Status codes: 400 invalid input, 403 wrong owner key, 404 unknown code or ticket, 409 queue closed, paused (for joining) or duplicate join. Walk-ins are still accepted while joining is paused, because pausing stops strangers scanning, not the desk.
 
 **Snapshot** (the one shared shape, sent by REST and socket):
 ```json
@@ -523,8 +538,10 @@ Status codes: 400 invalid input, 403 wrong owner key, 404 unknown code or ticket
   "code": "K7M2QX",
   "name": "Dr. Rao Clinic",
   "status": "open",
+  "noReceptionist": false,
   "serving": 12,
   "waiting": [13, 14, 15, 16],
+  "physical": [14],
   "avgServiceMin": 4.5
 }
 ```
@@ -568,7 +585,7 @@ async function advance(queue, finishedStatus) {
   );
 }
 ```
-After `advance`, call `buildSnapshot(queue)` then `io.to(queue.code).emit('queue:update', snapshot)`.
+After `advance`, call `buildSnapshot(queue)` then `io.to(queue.code).emit('queue:update', snapshot)`. The same step also sends the best-effort pushes: "It is your turn" to the ticket being called, and "You are next" to the new first person in line.
 
 Average service time:
 ```js
@@ -595,6 +612,8 @@ export function waitMinutes(ahead, avg, someoneServing) {
 Server: `express`, `mongoose`, `socket.io`, `cors`, `dotenv`, `nodemon` (dev).
 
 App (Expo, JavaScript template): `@react-navigation/native`, `@react-navigation/native-stack`, `react-native-screens`, `react-native-safe-area-context`, `socket.io-client`, `@react-native-async-storage/async-storage`, `expo-camera`, `react-native-qrcode-svg`, `react-native-svg`, `expo-haptics`, `expo-keep-awake`, `expo-font`, `@expo-google-fonts/archivo`, `@expo-google-fonts/archivo-narrow`, `@expo/vector-icons` (ships with Expo; use only the Feather set, and only 4 icons: x, chevron-left, pause, play).
+
+Added after the first build: `expo-notifications` (system notifications and the push token), `expo-audio` (the buzzer sound), `expo-constants` (finds the dev server's address), `react-native-web` and `react-dom` (the owner console and shop display). The server still uses no extra libraries beyond the list above; push uses the built-in `fetch`.
 
 Use the built-in `fetch` for REST. Use built-in `Animated`, `LayoutAnimation` and `Modal` for all motion and sheets.
 
@@ -636,6 +655,14 @@ JAVA_MiniProject/
       components/Sheet.js
       components/ScanFrame.js
       components/EmptyStubs.js
+      components/QrCard.js        rounded white card for every QR (its margin is the scanner's quiet zone)
+      components/WalkInSheet.js   the receptionist's walk-in form and result
+      components/AlertBanner.js   the yellow banner for called, next and leave alerts
+      lib/buzzer.js               urgent and calm buzzer sounds with vibration; off on web
+      lib/qr.js                   QUEUELESS:<CODE> and QUEUELESS-TICKET:<id>, and the parser
+      lib/walkins.js              the paper tokens beside a held ticket
+      hooks/useOwnerBuzzer.js     rings the owner's phone for paper tokens
+      hooks/useTicketAlerts.js    watches every held queue for called, next and leave alerts
       screens/Home.js
       screens/StartQueue.js
       screens/OwnerDashboard.js
@@ -777,6 +804,10 @@ Add a short `README.md` in the root with: how to start Mongo, `cd server && npm 
 5. Serve three people quickly. Show the estimate change to match real speed.
 6. Skip someone, recall them, show the "Your turn" colour change and buzz.
 7. Close the queue and show the summary.
+8. Walk-in: on the owner's phone add a paper token for someone without a phone. Show the number on the slip, and the "Paper" tag in the list.
+9. Turn on "No receptionist". Show the phone customer beside the paper token receive the request to pass the word on.
+10. Call the paper token. The owner's phone buzzes and says "Paper token. Call it out."
+11. Open the shop display on a TV-sized window to show the same line.
 
 ## 12. Questions a viva examiner may ask
 
@@ -788,7 +819,10 @@ Add a short `README.md` in the root with: how to start Mongo, `cd server && npm 
 | How does the owner stay secure with no login? | A random key is created at queue creation and checked on every owner action. |
 | What if the phone loses connection? | The socket reconnects on its own and the app asks for a fresh snapshot, so it catches up. |
 | How accurate is the wait time? | It uses the last 10 real service times. It is a good guess, not a promise, and improves as people are served. |
-| What would you add with more time? | Push notifications, owner accounts, multiple counters, a shop display screen, deployment. |
+| How does a customer with no phone join? | The receptionist adds them as a walk-in. A paper token gets a number on a slip, and the owner's phone buzzes when it is their turn. The number comes from the same atomic counter, so the line stays fair. |
+| How does the app help when there is no receptionist? | The owner turns on "No receptionist". Each phone customer right before or after a paper token gets one push asking them to pass the word on. |
+| Why does a Mongo update decide who gets a push? | The update that marks a request as sent uses a filter (`relayed` does not contain the number) and `modifiedCount`, so two quick snapshots cannot send the same request twice. |
+| What would you add with more time? | Owner accounts, multiple counters, HTTPS and rate limiting, automated tests, deployment. |
 
 ## 13. Known limitations (state them honestly in the report)
 
@@ -796,3 +830,7 @@ Add a short `README.md` in the root with: how to start Mongo, `cd server && npm 
 - A customer who clears app data loses their ticket.
 - Only works on a local network, with no HTTPS or authentication beyond the owner key.
 - The estimate ignores the fact that different services take different amounts of time.
+- Server push only reaches a development or production build with an EAS project id (on Android it also needs Firebase Cloud Messaging). Expo Go cannot receive it.
+- A paper token's holder is called out by the receptionist. The app can ring the owner and ask a neighbour, but it cannot reach someone with no phone.
+- Scheduled leave-in reminders are off, so the leave-in alert only shows while the app is open.
+- No automated test suite is committed yet. The flows were checked with scripted end-to-end runs.
