@@ -72,19 +72,22 @@ function contentFor(kind, ticket) {
   return { title, body, data: { ticketId: ticket.ticketId } };
 }
 
-// Shows right now: used when a number is called while the app is in the background.
-export async function notifyCalled(ticket) {
+// Shows right now: used when a number is called, or is next, while the app is in the background.
+async function notifyNow(kind, ticket) {
   if (!SUPPORTED) return;
   try {
     await ensureChannel();
     await notifications().scheduleNotificationAsync({
-      content: contentFor('called', ticket),
+      content: contentFor(kind, ticket),
       trigger: Platform.OS === 'android' ? { channelId: CHANNEL } : null, // null: show now
     });
   } catch {
     // not permitted or unsupported: the banner covers the foreground case
   }
 }
+
+export const notifyCalled = (ticket) => notifyNow('called', ticket);
+export const notifyNext = (ticket) => notifyNow('next', ticket);
 
 // A fixed identifier per ticket, so scheduling again replaces the earlier reminder instead of
 // stacking a second one, even after the app has been restarted.

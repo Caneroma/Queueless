@@ -16,6 +16,16 @@ import TopBar from '../components/TopBar';
 const LABEL = { waiting: 'Waiting', serving: 'Your turn', done: 'Done', skipped: 'Skipped', left: 'Closed' };
 const ENDED = ['done', 'skipped', 'left'];
 
+// A called ticket is yellow, the same colour the ticket screen turns, so it is hard to miss in a list.
+function StatusTag({ status }) {
+  const called = status === 'serving';
+  return (
+    <View style={[styles.tag, { backgroundColor: called ? colors.yellow : colors.fog }]}>
+      <Text style={[type.caption, styles.tagText, called && styles.tagCalled]}>{LABEL[status]}</Text>
+    </View>
+  );
+}
+
 // Every ticket this phone holds, one per queue. Open one, remove one, or join another queue.
 export default function Tickets({ navigation }) {
   const [tickets, setTickets] = useState([]);
@@ -76,10 +86,10 @@ export default function Tickets({ navigation }) {
                 <Text style={[type.body, styles.ink]} numberOfLines={1}>
                   {t.queueName}
                 </Text>
-                <Text style={[type.caption, styles.pencil]}>
-                  Code {t.code}
-                  {status[t.ticketId] ? ` · ${LABEL[status[t.ticketId]]}` : ''}
-                </Text>
+                <View style={styles.meta}>
+                  <Text style={[type.caption, styles.pencil]}>Code {t.code}</Text>
+                  {status[t.ticketId] ? <StatusTag status={status[t.ticketId]} /> : null}
+                </View>
               </View>
             </Pressable>
             <BigButton
@@ -128,4 +138,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.hairline,
   },
   open: { flex: 1, minHeight: 72, flexDirection: 'row', alignItems: 'center' },
+  meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm, marginTop: 2 },
+  tag: { borderRadius: 999, paddingHorizontal: space.sm, paddingVertical: 2 },
+  tagText: { color: colors.ink },
+  tagCalled: { fontFamily: 'Archivo_600SemiBold' },
 });

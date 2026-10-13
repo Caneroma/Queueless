@@ -9,7 +9,7 @@ export default function SkippedSheet({ visible, onClose, skipped, busy, onRecall
     <Sheet visible={visible} onClose={onClose} title={`Skipped (${skipped.length})`}>
       <ScrollView style={{ maxHeight: 320 }}>
         {skipped.map((t) => (
-          <Row key={t.id} number={t.number} name={t.name}>
+          <Row key={t.id} number={t.number} name={t.name} kind={t.kind}>
             <BigButton label="Put back" variant="text" height={48} busy={busy} onPress={() => onRecall(t)} />
           </Row>
         ))}

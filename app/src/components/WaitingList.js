@@ -1,32 +1,34 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, space, type } from '../theme';
+import { colors, radius, space, type } from '../theme';
 import BigButton from './BigButton';
 import EmptyStubs from './EmptyStubs';
 
 // Plain rows with hairlines. "Guest" stands in for a ticket with no name.
-export function Row({ number, name, children }) {
+export function Row({ number, name, kind, children }) {
   return (
     <View style={styles.row}>
       <Text style={[type.rowNumber, styles.number]}>{number}</Text>
       <Text style={[type.body, styles.name]} numberOfLines={1}>
         {name || 'Guest'}
       </Text>
+      {kind === 'physical' && <Text style={[type.caption, styles.paper]}>Paper</Text>}
       {children}
     </View>
   );
 }
 
-export default function WaitingList({ waiting, skipped, onReview }) {
+export default function WaitingList({ waiting, skipped, onReview, onAddWalkIn }) {
   return (
     <View style={styles.list}>
       <View style={styles.heading}>
         <Text style={[type.section, styles.ink]}>Waiting</Text>
         <Text style={[type.caption, styles.count]}>{waiting.length} {waiting.length === 1 ? 'person' : 'people'}</Text>
       </View>
+      <BigButton label="Add walk-in" variant="outline" height={48} onPress={onAddWalkIn} style={styles.walkIn} />
       {waiting.length === 0 ? (
         <EmptyStubs message="Nobody is waiting. Share the QR to get people in." />
       ) : (
-        waiting.map((t) => <Row key={t.id} number={t.number} name={t.name} />)
+        waiting.map((t) => <Row key={t.id} number={t.number} name={t.name} kind={t.kind} />)
       )}
       {skipped.length > 0 && (
         <View style={styles.skipped}>
@@ -52,5 +54,14 @@ const styles = StyleSheet.create({
   },
   number: { width: 64, color: colors.ink },
   name: { flex: 1, color: colors.ink },
+  walkIn: { marginBottom: space.sm },
+  paper: {
+    color: colors.ink,
+    backgroundColor: colors.fog,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    marginLeft: space.sm,
+    overflow: 'hidden',
+  },
   skipped: { marginTop: space.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
 });

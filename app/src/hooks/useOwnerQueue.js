@@ -55,5 +55,6 @@ export default function useOwnerQueue(owner, snapshot, reduceMotion, onGone) {
     }
   }
 
-  return { lists, busy, message, run };
+  // `loaded` is false until the first fetch lands, so a screen can tell "empty" from "not here yet".
+  return { lists, loaded: lists !== EMPTY, busy, message, run };
 }

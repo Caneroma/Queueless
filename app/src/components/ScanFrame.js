@@ -1,7 +1,8 @@
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { colors } from '../theme';
 
-const BRACKET = 28;
+const BRACKET = 36;
+const ROUND = 16; // matches the rounded corners of the QR card
 
 // Dims everything except a square window, and draws four corner brackets
 // around it. The brackets turn yellow once a code has been read.
@@ -33,8 +34,8 @@ const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, pointerEvents: 'none' },
   mask: { backgroundColor: colors.mask },
   corner: { position: 'absolute', width: BRACKET, height: BRACKET },
-  tl: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3 },
-  tr: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 },
-  bl: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 },
-  br: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 },
+  tl: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: ROUND },
+  tr: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: ROUND },
+  bl: { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: ROUND },
+  br: { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: ROUND },
 });

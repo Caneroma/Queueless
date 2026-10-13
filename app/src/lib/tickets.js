@@ -1,5 +1,5 @@
 import { api } from './api';
-import { cancelLeaveReminder } from './notify';
+import { cancelLeaveReminder, registerForPushNotifications } from './notify';
 import { removeTicket } from './storage';
 
 // Gives up a ticket: tells the server (so the owner never calls a ghost), then forgets it here.
@@ -15,4 +15,12 @@ export async function leaveTicket(ticket) {
   }
   await cancelLeaveReminder(ticket.ticketId); // a ticket that is gone must not buzz later
   return removeTicket(ticket.ticketId);
+}
+
+// Hands the server this phone's notification token, so a call reaches it with the app closed.
+// Best effort: without it the in-app alerts still work.
+export async function registerPush(ticketId) {
+  const token = await registerForPushNotifications();
+  if (!token) return;
+  await api(`/tickets/${ticketId}/notifications`, { method: 'POST', body: { token } }).catch(() => {});
 }

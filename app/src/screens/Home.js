@@ -9,7 +9,7 @@ import { ticketRoute } from '../lib/nav';
 import { loadOwner, loadTickets } from '../lib/storage';
 
 // Two full-height panels, each a single tap. Text sits low, near the thumb.
-function Panel({ grow, bg, color, caption, title, detail, top = 0, onPress, icon }) {
+function Panel({ grow, bg, color, caption, title, detail, onPress, icon }) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -18,7 +18,7 @@ function Panel({ grow, bg, color, caption, title, detail, top = 0, onPress, icon
       onPress={onPress}
       style={({ pressed }) => [
         styles.panel,
-        { flex: grow, backgroundColor: bg, paddingTop: top + space.xl },
+        { flex: grow, backgroundColor: bg, paddingTop: space.xl },
         pressed && styles.pressed,
       ]}
     >
@@ -50,11 +50,15 @@ export default function Home({ navigation }) {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
+      <View style={[styles.header, { paddingTop: insets.top + space.md }]}>
+        <Text accessibilityRole="header" style={[type.section, styles.brand]}>
+          Queueless
+        </Text>
+      </View>
       <Panel
         grow={held ? 40 : 55}
         bg={colors.blue}
         color={colors.white}
-        top={insets.top}
         caption="I'm waiting"
         title="Join a queue"
         detail="Scan a code. Keep your place."
@@ -92,6 +96,8 @@ export default function Home({ navigation }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  header: { paddingHorizontal: space.xl, paddingBottom: space.lg, backgroundColor: colors.blue },
+  brand: { color: colors.white, letterSpacing: -0.2 },
   panel: { padding: space.xl, paddingBottom: space.xxl, justifyContent: 'flex-end' },
   panelTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm },
   caption: { opacity: 0.72 },

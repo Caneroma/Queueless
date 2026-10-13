@@ -1,7 +1,8 @@
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import QRCode from 'react-native-qrcode-svg';
 import { colors, space, type } from '../theme';
 import useScreenOn from '../hooks/useScreenOn';
+import { queueQr } from '../lib/qr';
+import QrCard, { QR_PADDING } from './QrCard';
 import Sheet from './Sheet';
 
 // Separate component so the screen only stays awake while the QR is on show.
@@ -10,11 +11,10 @@ function QrBody({ code }) {
   useScreenOn();
   const { width, height } = useWindowDimensions();
   // Capped by height too, so the code and hint stay on screen in a short browser window.
-  const size = Math.min(width - space.xl * 2, height * 0.45, 320);
+  const size = Math.min(width - (space.xl + QR_PADDING + 1) * 2, height * 0.42, 300);
   return (
     <View style={styles.body}>
-      {/* The QR holds a prefix so the scanner can tell our codes from any other QR. */}
-      <QRCode value={`QUEUELESS:${code}`} size={size} color={colors.ink} backgroundColor={colors.white} />
+      <QrCard value={queueQr(code)} size={size} />
       <Text accessibilityLabel={`Code ${code.split('').join(' ')}`} style={[type.code, styles.code]}>
         {code}
       </Text>

@@ -6,6 +6,7 @@ import * as haptics from '../lib/haptics';
 import { goHome } from '../lib/nav';
 import { clearOwner } from '../lib/storage';
 import useLiveQueue from '../hooks/useLiveQueue';
+import useOwnerBuzzer from '../hooks/useOwnerBuzzer';
 import useOwnerQueue from '../hooks/useOwnerQueue';
 import useReducedMotion from '../hooks/useReducedMotion';
 import ActionDock from '../components/ActionDock';
@@ -19,21 +20,24 @@ import ServingStrip from '../components/ServingStrip';
 import SkippedSheet from '../components/SkippedSheet';
 import TopBar from '../components/TopBar';
 import WaitingList from '../components/WaitingList';
+import WalkInSheet from '../components/WalkInSheet';
 
-// `sheet` is which sheet is open: null, 'qr', 'skip', 'skipped', 'options' or 'close'.
+// `sheet` is which sheet is open: null, 'qr', 'skip', 'skipped', 'walkin', 'options' or 'close'.
 export default function OwnerDashboard({ navigation, route }) {
   const owner = route.params.owner;
   const reduceMotion = useReducedMotion();
   const { snapshot, online } = useLiveQueue(owner.code);
   const forget = useCallback(() => clearOwner().then(() => goHome(navigation)), [navigation]);
-  const { lists, busy, message, run } = useOwnerQueue(owner, snapshot, reduceMotion, forget);
+  const { lists, loaded, busy, message, run } = useOwnerQueue(owner, snapshot, reduceMotion, forget);
+  useOwnerBuzzer(lists, loaded);
   const [sheet, setSheet] = useState(null);
   const closing = useRef(false);
 
   const serving = snapshot ? snapshot.serving : null;
   const waitingCount = snapshot ? snapshot.waiting.length : 0;
   const paused = !!snapshot && snapshot.status === 'paused';
-  const servingName = lists.serving && lists.serving.number === serving ? lists.serving.name : '';
+  const noReceptionist = !!snapshot && !!snapshot.noReceptionist;
+  const servingRow = lists.serving && lists.serving.number === serving ? lists.serving : null;
 
   // Reopened on a queue that was already closed (app killed on the summary): start over.
   useEffect(() => {
@@ -63,6 +67,14 @@ export default function OwnerDashboard({ navigation, route }) {
   }
 
   const recall = (t) => run(`recall/${t.id}`, { done: () => `Put ${t.number} back` });
+
+  const addWalkIn = (name, kind) => run('walkin', { body: { name, kind } });
+
+  const toggleReceptionist = (value) =>
+    run('settings', {
+      body: { noReceptionist: value },
+      done: () => (value ? 'Neighbours will be asked to help' : 'Receptionist back at the counter'),
+    });
 
   const pauseButton = (
     <Pressable
@@ -97,7 +109,12 @@ export default function OwnerDashboard({ navigation, route }) {
         <DisplayLink code={owner.code} />
       </View>
 
-      <ServingStrip number={serving} name={servingName} reduceMotion={reduceMotion} />
+      <ServingStrip
+        number={serving}
+        name={servingRow ? servingRow.name : ''}
+        paper={!!servingRow && servingRow.kind === 'physical'}
+        reduceMotion={reduceMotion}
+      />
       <View style={styles.messageRow}>
         {message && (
           <Text
@@ -110,7 +127,12 @@ export default function OwnerDashboard({ navigation, route }) {
       </View>
 
       <ScrollView>
-        <WaitingList waiting={lists.waiting} skipped={lists.skipped} onReview={() => setSheet('skipped')} />
+        <WaitingList
+          waiting={lists.waiting}
+          skipped={lists.skipped}
+          onReview={() => setSheet('skipped')}
+          onAddWalkIn={() => setSheet('walkin')}
+        />
       </ScrollView>
       <ActionDock
         nextLabel={serving === null ? 'Call first person' : 'Next'}
@@ -121,6 +143,13 @@ export default function OwnerDashboard({ navigation, route }) {
         onSkip={() => setSheet('skip')}
       />
 
+      <WalkInSheet
+        visible={sheet === 'walkin'}
+        onClose={() => setSheet(null)}
+        onAdd={addWalkIn}
+        busy={busy}
+        error={message && message.error ? message.text : ''}
+      />
       <QrSheet visible={sheet === 'qr'} onClose={() => setSheet(null)} name={owner.name} code={owner.code} />
       <ConfirmSheet
         visible={sheet === 'skip'}
@@ -140,10 +169,12 @@ export default function OwnerDashboard({ navigation, route }) {
       <QueueOptionsSheet
         mode={sheet === 'options' || sheet === 'close' ? sheet : null}
         paused={paused}
+        noReceptionist={noReceptionist}
         busy={busy}
         error={message && message.error ? message.text : ''}
         onClose={() => setSheet(null)}
         onPause={togglePause}
+        onToggleReceptionist={toggleReceptionist}
         onAskClose={() => setSheet('close')}
         onConfirmClose={closeQueue}
       />

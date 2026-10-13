@@ -43,14 +43,17 @@ The customer app (join, live ticket, alerts) runs on a phone through Expo.
 - Join by scanning the QR in-app, or by typing the 6-character code. Optional first name.
 - Live ticket: your number, who is being served, people ahead, estimated wait. The screen changes colour with state: blue waiting, yellow your turn.
 - **Leave-in timer.** Say how far away you are (5, 10, 20 or 30 min) and the ticket tells you when to set off, counting down and following the line.
-- A buzz and a "Head back to the shop" prompt when 2 or fewer people are ahead. When you are called, a banner and a buzz on any screen, plus a system notification in development or production builds.
+- A buzz and a "Head back to the shop" prompt when 2 or fewer people are ahead. A "You are next" alert, then a buzzer and a banner on any screen when you are called, plus a system notification in development or production builds. The buzzer follows the phone's volume and silent switch.
+- When the shop has no receptionist, you are asked to pass the word on to a paper-token holder sitting right before or after you.
 - Hold tickets in several queues at once, with a My tickets screen to open or leave each.
 - The app reopens on your ticket.
 
 **Owner** (phone or browser)
 - Open a queue in seconds: shop name and a starting minutes-per-person estimate.
 - Next, Skip, Recall a no-show to the back of the line, Pause joining, Close with a day summary.
-- Named waiting list, visible only to the owner.
+- Named waiting list, visible only to the owner, with paper tokens tagged.
+- **Walk-ins.** Add a customer who cannot scan: a paper token (hand over the number; this phone buzzes when it is their turn) or a digital token (they scan a QR to put it on their own phone).
+- **No receptionist** setting: neighbours of a paper token are notified to pass the word on.
 
 **Shop display** (browser)
 - A full-screen page for a TV: the serving number in giant rolling digits, the next five numbers, and the join QR. Public and read-only, with numbers only and no names.
@@ -142,6 +145,8 @@ REST under `/api`. Owner routes need the `x-owner-key` header returned when the 
 | GET | `/queues/:code/owner` | owner | Named serving, waiting and skipped lists |
 | POST | `/queues/:code/next` · `skip` | owner | Advance the line |
 | POST | `/queues/:code/recall/:ticketId` | owner | Return a skipped ticket to the back |
+| POST | `/queues/:code/walkin` | owner | Add a walk-in, `kind` is `physical` or `digital` |
+| POST | `/queues/:code/settings` | owner | Set `noReceptionist` |
 | POST | `/queues/:code/pause` · `close` | owner | Pause joining, close with a summary |
 
 Sockets: `room:join` (client to server, then a fresh snapshot comes back) and `queue:update` (server to room). Errors use 400, 403, 404 and 409 with a readable `error` message.
@@ -150,10 +155,10 @@ Sockets: `room:join` (client to server, then a fresh snapshot comes back) and `q
 
 | Layer | Expo Go | Dev or production build |
 |---|---|---|
-| Banner and haptics while the app is open | Yes | Yes |
+| Banner, buzzer and haptics while the app is open | Yes | Yes |
 | System notification while the app is backgrounded | No | Yes |
 | Leave-in reminder scheduled on the phone | No | Yes |
-| Server push to a closed app | No | Yes, with an EAS project id (Android also needs Firebase Cloud Messaging credentials) |
+| Server push to a closed app: "You are next", "Your turn", and the paper-token request | No | Yes, with an EAS project id (Android also needs Firebase Cloud Messaging credentials) |
 
 Expo Go cannot load the notifications library on Android, so the app skips it there. Push is best effort and never delays the line.
 
@@ -189,6 +194,7 @@ PRD.md  VIVA.md               Product specification · presentation guide
 - Built for a trusted network: no HTTPS, rate limiting or abuse protection.
 - The estimate does not model different service types.
 - The leave-in time is a prediction from the last update; a reminder already scheduled on a sleeping phone cannot be revised.
+- A paper token's holder is called out by the receptionist; the app only rings the owner's phone and cannot reach someone with no phone.
 - Verified through scripted end-to-end checks, but no automated test suite is committed yet.
 
 **Next**

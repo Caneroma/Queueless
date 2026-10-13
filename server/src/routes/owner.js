@@ -1,14 +1,15 @@
 // Routes that need the owner's key: run the line and close it.
 const express = require('express');
+const Queue = require('../models/Queue');
 const Ticket = require('../models/Ticket');
 const { publish } = require('../lib/snapshot');
 const { requireOwner } = require('../lib/auth');
-const { HttpError } = require('../lib/http');
-const { notifyTicketCalled } = require('../lib/push');
+const { HttpError, cleanText } = require('../lib/http');
+const { notifyTicketCalled, notifyTicketNext } = require('../lib/push');
 
 const router = express.Router();
 
-const toRow = (t) => ({ id: t.id, number: t.number, name: t.name });
+const toRow = (t) => ({ id: t.id, number: t.number, name: t.name, kind: t.kind });
 
 function assertNotClosed(queue) {
   if (queue.status === 'closed') {
@@ -28,7 +29,12 @@ async function advance(queue, finishedStatus) {
     { status: 'serving', calledAt: now },
     { sort: { sortKey: 1 }, returnDocument: 'after' }
   );
-  if (next) notifyTicketCalled(next, queue.name);
+  if (next) {
+    notifyTicketCalled(next, queue.name);
+    // Whoever is now first in line is told to get ready.
+    const upNext = await Ticket.findOne({ queueId: queue._id, status: 'waiting' }).sort({ sortKey: 1 });
+    notifyTicketNext(upNext, queue.name);
+  }
   return next;
 }
 
@@ -45,6 +51,40 @@ router.get('/:code/owner', requireOwner, async (req, res) => {
     waiting: waiting.map(toRow),
     skipped: skipped.map(toRow),
   });
+});
+
+// The receptionist's entry for a customer with no phone (or no app). The number comes from the same
+// atomic counter as a scan, so walk-ins and phones share one fair line. 'physical' is a paper token
+// to hand over; 'digital' is a ticket the customer links to their own phone by scanning its QR.
+// Joining being paused stops strangers scanning, not the desk, so this works while paused.
+router.post('/:code/walkin', requireOwner, async (req, res) => {
+  assertNotClosed(req.queue);
+  const body = req.body || {};
+  const kind = body.kind === 'digital' ? 'digital' : 'physical';
+  const queue = await Queue.findOneAndUpdate(
+    { _id: req.queue._id, status: { $in: ['open', 'paused'] } },
+    { $inc: { lastNumber: 1 } },
+    { returnDocument: 'after' }
+  );
+  if (!queue) throw new HttpError(409, 'This queue is closed. Ask the shop for a new code.');
+  const ticket = await Ticket.create({
+    queueId: queue._id,
+    number: queue.lastNumber,
+    sortKey: queue.lastNumber,
+    name: cleanText(body.name, 30),
+    kind,
+  });
+  const snapshot = await publish(req.app.get('io'), queue);
+  res.status(201).json({ ticketId: ticket.id, number: ticket.number, kind, snapshot });
+});
+
+router.post('/:code/settings', requireOwner, async (req, res) => {
+  assertNotClosed(req.queue);
+  const { noReceptionist } = req.body || {};
+  if (typeof noReceptionist !== 'boolean') throw new HttpError(400, 'Nothing to change.');
+  req.queue.noReceptionist = noReceptionist;
+  await req.queue.save();
+  res.json(await publish(req.app.get('io'), req.queue));
 });
 
 router.post('/:code/next', requireOwner, async (req, res) => {

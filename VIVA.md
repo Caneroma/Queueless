@@ -32,11 +32,15 @@ Order of presentation: 1 → 2 → 3 → 4, which follows one request from the s
 **Explain**
 
 - **Two collections.**
-  - `Queue`: `name`, `code` (unique), `ownerKey`, `status` (`open`, `paused`, `closed`), `defaultServiceMin`, `lastNumber`.
-  - `Ticket`: `queueId` (indexed), `number`, `sortKey`, `name`, `status` (`waiting`, `serving`, `done`, `skipped`, `left`), `joinedAt`, `calledAt`, `finishedAt`.
+  - `Queue`: `name`, `code` (unique), `ownerKey`, `status` (`open`, `paused`, `closed`), `defaultServiceMin`, `lastNumber`, `noReceptionist`.
+  - `Ticket`: `queueId` (indexed), `number`, `sortKey`, `name`, `kind` (`digital` or `physical`), `relayed`, `status` (`waiting`, `serving`, `done`, `skipped`, `left`), `joinedAt`, `calledAt`, `finishedAt`.
 - **Join code.** 6 characters from a 31-character alphabet with no `0 O 1 I L`, so it can be read off a counter without mistakes. `makeCode()` retries if the code exists. `ownerKey` is 24 hex characters from `crypto.randomBytes(12)`.
 - **Token numbers are atomic.** `findOneAndUpdate({ code, status: 'open' }, { $inc: { lastNumber: 1 } }, { new: true })` returns the new number in one database operation. The `status: 'open'` filter also rejects paused and closed queues in the same step. If it returns `null`, a second lookup decides between 404 (unknown code) and 409 (paused or closed).
 - **`advance(queue, finishedStatus)`** is shared by Next and Skip: the current `serving` ticket becomes `done` or `skipped` with `finishedAt`, then the lowest `sortKey` waiting ticket becomes `serving` with `calledAt`. Sharing it keeps the rule "one serving ticket per queue" in one place.
+- **Walk-ins.** `POST /queues/:code/walkin` (owner) takes the number from the same atomic `$inc` as a scan, so phones and walk-ins share one fair line. `kind: 'physical'` is a paper token; `kind: 'digital'` is a ticket the customer later links to their phone. It works while joining is paused, because pausing stops strangers scanning, not the desk, and is refused with 409 once the queue is closed.
+- **Snapshot additions.** `physical` lists which of the numbers in line are paper tokens, and `noReceptionist` carries the owner's setting. `waiting` stays a plain array of numbers, so older clients and the ETA code are untouched.
+- **"You are next".** After `advance()` the server finds the new first waiting ticket and pushes "You are next" to it, in the same best-effort way as the call.
+- **No receptionist.** When the owner turns `noReceptionist` on, every `publish()` checks the line: a phone ticket directly before or after a paper token gets one push asking it to pass the word on. "Once per pair" is made atomic with `updateOne({ _id, relayed: { $ne: n } }, { $addToSet: { relayed: n } })` and checking `modifiedCount`, so two quick updates cannot send two requests.
 - **Recall** sets a skipped ticket back to `waiting` with `sortKey = highest + 1`, which puts it at the back without renumbering anyone.
 - **Close** counts `served`, `skipped` and `left` first, then marks everyone still `waiting` or `serving` as `left`, then sets the queue to `closed`.
 - **Owner auth.** `requireOwner` loads the queue by `:code` and compares the `x-owner-key` header with the stored key. Mismatch gives 403. The key is never returned by any public route.
@@ -63,7 +67,7 @@ Skipped and abandoned tickets are excluded because they took no real service tim
 
 ## Part 2: Real-time and client foundation (Member 2)
 
-**Files:** `server/src/index.js` (socket handler), `lib/snapshot.js` (`publish`), `app/src/lib/socket.js`, `hooks/useLiveQueue.js`, `hooks/useTicketAlerts.js`, `lib/notify.js`, `components/CalledBanner.js`, `lib/api.js`, `lib/storage.js`, `lib/eta.js`, `lib/nav.js`, `config.js`, `App.js`, `Navigator.js`, `Navigator.web.js`, `components/OfflineBanner.js`, `theme.js`
+**Files:** `server/src/index.js` (socket handler), `lib/snapshot.js` (`publish`), `app/src/lib/socket.js`, `hooks/useLiveQueue.js`, `hooks/useTicketAlerts.js`, `lib/notify.js`, `components/AlertBanner.js`, `lib/buzzer.js`, `lib/walkins.js`, `lib/qr.js`, `lib/api.js`, `lib/storage.js`, `lib/eta.js`, `lib/nav.js`, `config.js`, `App.js`, `Navigator.js`, `Navigator.web.js`, `components/OfflineBanner.js`, `theme.js`
 
 **Explain**
 
@@ -104,7 +108,7 @@ Skipped and abandoned tickets are excluded because they took no real service tim
 - **`Ticket`** is a white card with two notch circles in the screen's own colour and a dashed tear line. The notches are `Animated.View` on purpose: giving an animated colour to a plain `View` made React Native freeze the `Animated.Value` in dev builds and crash the first fade (`Cannot add new property '_tracking'`). This was a real bug found and fixed.
 - **`LineDots`:** one dot per person ahead (at most 8, then `+N`) and one larger yellow dot for you. Dots are keyed from the right so the leftmost one leaves when the line moves. `animateLayout()` runs just before the snapshot is applied, which is the only moment `LayoutAnimation` works.
 - **"Your number is called" alerts.** `useTicketAlerts` runs above all screens (in `Navigator.js`). It joins the room of every held ticket on the one shared socket and watches each `queue:update`. When `serving` equals a held number, it alerts once per call:
-  - **App open, on any other screen:** a yellow `CalledBanner` slides down ("Number 14 is being called. Go to the counter now.") with the double success haptic. Tapping it opens the ticket. It clears itself when the number moves on.
+  - **App open, on any other screen:** a yellow `AlertBanner` slides down ("Number 14 is being called. Go to the counter now.") with the double success haptic. Tapping it opens the ticket. It clears itself when the number moves on.
   - **App open on that ticket:** nothing extra, because the ticket screen already turns yellow and buzzes.
   - **App in the background:** a system notification ("It is your turn"), raised locally by `expo-notifications`. Separately, after joining, `registerForPushNotifications` gets an Expo push token and gives it to the server, so the server can reach a phone whose app is closed. Tapping it opens the ticket. Permission is requested right after joining. This part needs a development or production build: Expo Go on Android cannot load the library (it throws on import), so `lib/notify.js` detects Expo Go with `isRunningInExpoGo()` and skips it, leaving the banner as the only alert.
   - A call that arrived while the app was in the background shows as a banner when the app returns.
@@ -114,6 +118,9 @@ Skipped and abandoned tickets are excluded because they took no real service tim
   - The distance is saved on the ticket in storage. `useLeaveAlerts`, running above all screens with the called-watcher, fires a banner and a buzz at the leave moment, once per choice. In a development or production build it also hands the same moment to the phone's own scheduler (`scheduleLeaveReminder`, with a fixed identifier per ticket so it is replaced, not duplicated), which can arrive even when the app is suspended.
   - It is entirely client-side: the server is not involved.
 - **Several tickets per phone.** A phone can hold one ticket in each of several queues, but not two in the same queue: the join screen checks the code against held tickets and shows "You already have a ticket for X. Open it or leave it first." Home always offers "Join a queue", plus a "My tickets" panel when any are held. `Tickets.js` lists them with live status (Waiting, Your turn, Done, Skipped, Closed), opens one, removes one, or joins another queue.
+- **"You are next" and the buzzer.** The same watcher notices when the held number is first in line while someone is being served and raises a calmer alert (banner, double beep and vibration, or a system notification in the background), once per ticket. When the number is called, `lib/buzzer.js` plays a short urgent sound and vibration through `expo-audio` and `Vibration`, even on the ticket screen where the banner would repeat the yellow background. It uses the phone's own volume and silent switch, so a silenced phone still vibrates.
+- **Walk-in neighbours.** `lib/walkins.js` reads the snapshot: with `noReceptionist` on and a number in `physical` directly before or after the held one, the ticket screen shows "Paper token 4 is right behind you. Please tell them when they are called."
+- **Linking a walk-in's ticket.** A walk-in added as digital gets a QR holding `QUEUELESS-TICKET:<ticketId>`. The scanner (`lib/qr.js` tells it from a queue QR) calls the existing `GET /tickets/:id`, checks it is still waiting or serving and not already held for that queue, saves it locally and registers for push. No new server route is needed, because a ticket id already identifies the ticket.
 - **Leave or remove.** `leaveTicket()` calls `POST /tickets/:id/leave` (only allowed while `waiting`), then deletes the local copy. A 404 (server forgot it) or 409 (already ended) still removes it locally, since nothing is left to leave on the server. A network failure keeps the ticket and shows the error, so a ticket is never dropped on the phone while the owner would still call it.
 
 **Be ready to say honestly**
@@ -129,7 +136,7 @@ Skipped and abandoned tickets are excluded because they took no real service tim
 
 ## Part 4: Owner experience and shared UI (Member 4)
 
-**Files:** `screens/StartQueue.js`, `OwnerDashboard.js`, `DaySummary.js`, `hooks/useOwnerQueue.js`, `components/ServingStrip.js`, `WaitingList.js`, `SkippedSheet.js`, `ActionDock.js`, `Sheet.js`, `ConfirmSheet.js`, `QueueOptionsSheet.js`, `QrSheet.js`, `RollingNumber.js`, `BigButton.js`, `Field.js`, `Screen.js`, `TopBar.js`, `DockButton.js`, `EmptyStubs.js`
+**Files:** `screens/StartQueue.js`, `OwnerDashboard.js`, `DaySummary.js`, `hooks/useOwnerQueue.js`, `components/ServingStrip.js`, `WaitingList.js`, `SkippedSheet.js`, `ActionDock.js`, `Sheet.js`, `ConfirmSheet.js`, `QueueOptionsSheet.js`, `QrSheet.js`, `QrCard.js`, `WalkInSheet.js`, `hooks/useOwnerBuzzer.js`, `RollingNumber.js`, `BigButton.js`, `Field.js`, `Screen.js`, `TopBar.js`, `DockButton.js`, `EmptyStubs.js`
 
 **Explain**
 
@@ -137,7 +144,10 @@ Skipped and abandoned tickets are excluded because they took no real service tim
 - **Dashboard.** The big number and counts come from the live snapshot. The named lists (waiting, skipped) come from `GET .../owner` with the key, refetched whenever the snapshot changes. Names reach only the owner.
 - **`useOwnerQueue.run()`** does every action: it ignores taps while one is in flight (the button dims, no spinner), calls the route, shows a confirmation named like the button ("Called 13", "Skipped 12", "Put 12 back") for 3 seconds, and plays the matching haptic. Errors appear as red text with an error haptic.
 - **Sheets.** One `Sheet` (a transparent `Modal` with a scrim, closed by scrim tap, the x, or Android back) is reused for the QR, skip confirmation, skipped list and options. Close and Pause share one sheet that swaps its content, so two modals never open and close at the same moment. Close is hidden behind a long-press on the shop name and inside the Pause sheet so it cannot be hit by accident.
-- **QR.** The QR value is `QUEUELESS:<CODE>` and the code is shown under it in large type. The screen stays awake while it is open.
+- **QR.** The QR value is `QUEUELESS:<CODE>` and the code is shown under it in large type. The screen stays awake while it is open. `QrCard` draws it on a rounded white card, whose margin doubles as the quiet zone, and the scanner's corner brackets use the same radius.
+- **Walk-ins.** "Add walk-in" opens `WalkInSheet`: a name, and a choice of Paper token or Their phone. Paper shows the number large to write on a slip; Their phone shows a QR the customer scans with Queueless. Paper tokens carry a "Paper" tag in the waiting list.
+- **Owner buzzer.** A paper token has no phone to ring, so `useOwnerBuzzer` rings the owner's: the urgent buzz when the number now being served is a paper token (the strip also says "Paper token. Call it out."), the calm one when a paper token is first in line. It fires on changes only, not when the screen opens.
+- **No receptionist.** A switch in the queue settings sheet. It only changes what customers are told: neighbours of a paper token are asked to pass the word on.
 - **Next and Skip.** Next reads "Call first person" when nobody is being served. Next stays enabled while someone is being served even if nobody waits, so the last person can be marked done and their time counted (a deliberate change from the PRD, which would leave them stuck as "serving"). Skip needs someone to be serving.
 - **Close.** A `closing` ref marks that the owner closed it, so the closed snapshot that arrives before the reply is not mistaken for a stale queue. The summary shows served, skipped, left on their own and average minutes. The owner record is cleared only when "Done" is pressed.
 - **`RollingNumber`:** each digit is a clipped column of 0–9 that slides by `translateY` over 450 ms. Digits are keyed from the right so the units column stays mounted when 9 becomes 10. Size follows the system font scale up to 1.3 so numerals never overflow.
@@ -175,7 +185,7 @@ Every phone gets the same snapshot and finds its own number in `waiting`. Index 
 The socket reconnects on its own. On every `connect` the app re-sends `room:join` and replaces its state with the fresh snapshot, so missed updates are repaired. A banner says "Reconnecting. Numbers may be out of date." until then.
 
 **8. Why does the app scan the QR itself instead of the phone's camera app?**
-A system-camera QR needs a deep link and a published app. The QR holds `QUEUELESS:<CODE>` and the in-app scanner reads it; a typed code is the fallback when the camera is denied.
+A system-camera QR needs a deep link and a published app. The QR holds `QUEUELESS:<CODE>` (or `QUEUELESS-TICKET:<id>` for a walk-in's ticket) and the in-app scanner reads it; a typed code is the fallback when the camera is denied.
 
 **9. Why REST for actions and sockets only for updates?**
 Actions need a result, status codes and validation, which REST gives. Sockets are used for one thing: pushing the snapshot. "You ask by REST, you are told by socket" is easy to explain and to debug.
@@ -204,5 +214,8 @@ It subtracts the customer's travel time and a 2-minute buffer from the wait esti
 **17. What is the shop display screen, and does it expose customer data?**
 It is a read-only page at `/?display=CODE` that shows the serving number, the next five numbers and the join QR, and updates live over the same Socket.io room as the phones. It uses the public snapshot, which holds numbers only, so no names are shown and no owner key is needed.
 
-**18. What would you add with more time?**
-Push that does not depend on a third-party service, owner accounts (so a queue survives a lost phone and works from phone and browser together), multiple counters, a shop display screen, HTTPS and rate limiting, and deployment.
+**18. How does a customer with no phone still get a place in the line?**
+The receptionist adds them: the server issues the next number from the same atomic counter, so they queue fairly alongside phones. A paper token is handed over as a number on a slip, and the owner's phone buzzes when it is that number's turn so the receptionist calls it out. A digital walk-in gets a QR that links the ticket to the customer's own phone. If the shop has no receptionist, the owner turns on "No receptionist", and the phone customers sitting directly before and after a paper token are asked to tell them when they are called.
+
+**19. What would you add with more time?**
+Push that does not depend on a third-party service, owner accounts (so a queue survives a lost phone and works from phone and browser together), multiple counters, HTTPS and rate limiting, and deployment.

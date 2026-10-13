@@ -7,12 +7,12 @@ import { colors, space, type } from '../theme';
 import { api } from '../lib/api';
 import * as haptics from '../lib/haptics';
 import { goHome } from '../lib/nav';
-import { registerForPushNotifications } from '../lib/notify';
+import { parseQr } from '../lib/qr';
 import { loadTickets, saveTicket } from '../lib/storage';
+import { registerPush } from '../lib/tickets';
 import JoinSheet from '../components/JoinSheet';
 import ScanFrame from '../components/ScanFrame';
 
-const PREFIX = 'QUEUELESS:';
 const WRONG_CODE = 'No queue has this code. Check the 6 characters and try again.';
 
 export default function JoinQueue({ navigation }) {
@@ -76,13 +76,7 @@ export default function JoinQueue({ navigation }) {
       };
       await saveTicket(ticket);
       haptics.confirm();
-      const pushToken = await registerForPushNotifications();
-      if (pushToken) {
-        await api(`/tickets/${ticket.ticketId}/notifications`, {
-          method: 'POST',
-          body: { token: pushToken },
-        }).catch(() => {});
-      }
+      await registerPush(ticket.ticketId);
       navigation.replace('MyTicket', { ticket });
     } catch (e) {
       setError(e.message);
@@ -91,18 +85,59 @@ export default function JoinQueue({ navigation }) {
     }
   }
 
+  // A ticket the receptionist already issued: link it to this phone instead of taking a new number.
+  async function claim(ticketId) {
+    setBusy(true);
+    setError('');
+    try {
+      if (!/^[a-f0-9]{24}$/i.test(ticketId)) throw new Error('That ticket code is not valid.');
+      const held = await loadTickets();
+      const mine = held.find((t) => t.ticketId === ticketId);
+      if (mine) {
+        navigation.replace('MyTicket', { ticket: mine });
+        return;
+      }
+      const found = await api(`/tickets/${ticketId}`).catch((e) => {
+        if (e.status === 404) throw new Error('That ticket no longer exists. Ask the shop for a new one.');
+        throw e;
+      });
+      if (!['waiting', 'serving'].includes(found.status)) throw new Error('That ticket has already finished.');
+      const sameQueue = held.find((t) => t.code === found.queueCode);
+      if (sameQueue) throw new Error(`You already have a ticket for ${sameQueue.queueName}. Open it or leave it first.`);
+      const ticket = {
+        ticketId,
+        code: found.queueCode,
+        number: found.number,
+        queueName: found.queueName,
+        issuedAt: new Date().toISOString(),
+      };
+      await saveTicket(ticket);
+      haptics.confirm();
+      await registerPush(ticketId);
+      navigation.replace('MyTicket', { ticket });
+    } catch (e) {
+      setError(e.message);
+      setScanned(false);
+      haptics.error();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function onScan({ data }) {
     const now = Date.now();
     // The camera reports the same QR many times a second; look once every 2 seconds.
     if (queue || busy || now - lastScan.current < 2000) return;
     lastScan.current = now;
-    if (!data.startsWith(PREFIX)) {
+    const scan = parseQr(data);
+    if (!scan) {
       setError('That QR code is not from Queueless.');
       return;
     }
     setScanned(true);
     haptics.tap();
-    lookup(data.slice(PREFIX.length));
+    if (scan.kind === 'ticket') claim(scan.value);
+    else lookup(scan.value);
   }
 
   const cameraOn = permission && permission.granted;

@@ -9,8 +9,8 @@ import useReducedMotion from '../hooks/useReducedMotion';
 
 const HIDDEN = -300; // far enough off-screen on any phone
 
-// "Yellow means go": slides over whatever screen the person is on when a held number is called, or
-// when it is time to set off. `alert` is { kind: 'called' | 'leave', ticket } or null.
+// "Yellow means go": slides over whatever screen the person is on when a held number is called or
+// is next, or when it is time to set off. `alert` is { kind: 'called' | 'next' | 'leave', ticket } or null.
 export default function AlertBanner({ alert, onOpen, onDismiss }) {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();

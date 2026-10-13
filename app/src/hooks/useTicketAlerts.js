@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { StackActions } from '@react-navigation/native';
+import { buzz } from '../lib/buzzer';
 import * as haptics from '../lib/haptics';
-import { notifyCalled, onNotificationTap } from '../lib/notify';
+import { notifyCalled, notifyNext, onNotificationTap } from '../lib/notify';
 import { socket } from '../lib/socket';
 import { loadTickets, onTicketsChange } from '../lib/storage';
 import useLeaveAlerts from './useLeaveAlerts';
 
 // Watches every queue this phone holds a ticket in, from any screen, and says so when a number
-// is called, or when it is time to set off (see useLeaveAlerts): a banner and a buzz while the app
-// is open, a system notification once it is in the background. Calls need the socket to be alive:
+// is called, when it is next, or when it is time to set off (see useLeaveAlerts): a banner and the
+// buzzer while the app is open, a system notification once it is in the background. Calls need the socket to be alive:
 // with no push server, a phone the system has fully put to sleep cannot be told a number was called.
 export default function useTicketAlerts(navigationRef) {
   const [tickets, setTickets] = useState([]);
-  const [alert, setAlert] = useState(null); // { kind: 'called' | 'leave', ticket } shown in the banner
+  const [alert, setAlert] = useState(null); // { kind: 'called' | 'next' | 'leave', ticket } shown in the banner
   const calling = useRef(new Map()); // tickets being called right now, so each call alerts once
+  const upNext = useRef(new Set()); // ticket ids first in line behind someone being served, likewise
 
   useEffect(() => {
     loadTickets().then(setTickets);
@@ -51,14 +53,31 @@ export default function useTicketAlerts(navigationRef) {
     if (!tickets.length) return undefined;
     const ids = new Set(tickets.map((t) => t.ticketId));
     calling.current.forEach((_, id) => !ids.has(id) && calling.current.delete(id));
+    upNext.current.forEach((id) => !ids.has(id) && upNext.current.delete(id));
 
     const announce = (ticket) => {
-      if (AppState.currentState !== 'active') notifyCalled(ticket);
-      else if (!viewing(ticket)) {
+      if (AppState.currentState !== 'active') {
+        notifyCalled(ticket);
+        return;
+      }
+      buzz('turn'); // always: the ticket screen turning yellow is easy to miss in a pocket
+      if (!viewing(ticket)) {
         haptics.turn();
         setAlert({ kind: 'called', ticket });
       }
     };
+    const announceNext = (ticket) => {
+      if (AppState.currentState !== 'active') {
+        notifyNext(ticket);
+        return;
+      }
+      buzz('next');
+      if (!viewing(ticket)) setAlert({ kind: 'next', ticket });
+    };
+    const clearBanner = (kind, ticket) =>
+      setAlert((current) =>
+        current && current.kind === kind && current.ticket.ticketId === ticket.ticketId ? null : current
+      );
 
     // Joining a room twice is harmless, so every code is joined again on each (re)connect.
     const join = () => new Set(tickets.map((t) => t.code)).forEach((code) => socket.emit('room:join', code));
@@ -71,9 +90,16 @@ export default function useTicketAlerts(navigationRef) {
             calling.current.set(ticket.ticketId, ticket);
             announce(ticket);
           } else if (!isCalled && calling.current.delete(ticket.ticketId)) {
-            setAlert((current) =>
-              current && current.kind === 'called' && current.ticket.ticketId === ticket.ticketId ? null : current
-            );
+            clearBanner('called', ticket);
+          }
+
+          // First in line while someone is being served: the call is only one Next away.
+          const isNext = !isCalled && snapshot.serving !== null && snapshot.waiting[0] === ticket.number;
+          if (isNext && !upNext.current.has(ticket.ticketId)) {
+            upNext.current.add(ticket.ticketId);
+            announceNext(ticket);
+          } else if (!isNext && upNext.current.delete(ticket.ticketId)) {
+            clearBanner('next', ticket);
           }
         });
     };

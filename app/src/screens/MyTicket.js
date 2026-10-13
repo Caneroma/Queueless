@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { space, type } from '../theme';
+import { colors, radius, space, type } from '../theme';
 import { api } from '../lib/api';
 import { waitMinutes } from '../lib/eta';
 import { animateLayout } from '../lib/motion';
 import { goHome } from '../lib/nav';
 import { removeTicket } from '../lib/storage';
 import { leaveTicket } from '../lib/tickets';
+import { paperNeighbours } from '../lib/walkins';
 import { barStyle, LOOK, positionLine, textColor, ticketState } from '../lib/ticketState';
 import useLiveQueue from '../hooks/useLiveQueue';
 import useReducedMotion from '../hooks/useReducedMotion';
@@ -76,6 +77,7 @@ export default function MyTicket({ navigation, route }) {
     ? null
     : Math.max(1, waitMinutes(ahead, snapshot.avgServiceMin, snapshot.serving !== null));
   const live = !ENDED.includes(kind);
+  const relay = live && kind !== 'turn' ? paperNeighbours(snapshot, record.number) : [];
 
   return (
     <Screen bg={bg} bar={barStyle(kind)} offline={!online}>
@@ -102,6 +104,14 @@ export default function MyTicket({ navigation, route }) {
           </Animated.View>
         )}
         {live && ahead !== null && kind !== 'turn' && <LineDots ahead={ahead} />}
+        {relay.map((n) => (
+          <View key={n.side} style={styles.relay}>
+            <Text style={[type.section, styles.relayText]}>Paper token {n.number} is right {n.side === 'ahead' ? 'ahead of' : 'behind'} you</Text>
+            <Text style={[type.body, styles.relayText]}>
+              They have no phone and there is no receptionist. Please tell them when they are called.
+            </Text>
+          </View>
+        ))}
         {live && ahead !== null && kind !== 'turn' && (
           <TravelPicker
             value={travel.travelMin}
@@ -146,4 +156,6 @@ const styles = StyleSheet.create({
   body: { flexGrow: 1, paddingHorizontal: space.xl, paddingTop: space.sm, paddingBottom: space.lg, gap: space.lg },
   ticket: { marginVertical: space.sm },
   action: { marginTop: space.lg },
+  relay: { padding: space.lg, borderRadius: radius.md, backgroundColor: colors.white, gap: space.xs },
+  relayText: { color: colors.ink },
 });

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import QRCode from 'react-native-qrcode-svg';
 import { colors, space, type } from '../theme';
 import { api } from '../lib/api';
+import { queueQr } from '../lib/qr';
 import useLiveQueue from '../hooks/useLiveQueue';
 import useReducedMotion from '../hooks/useReducedMotion';
 import OfflineBanner from '../components/OfflineBanner';
+import QrCard from '../components/QrCard';
 import RollingNumber from '../components/RollingNumber';
 
 const UPCOMING = 5;
@@ -85,7 +86,7 @@ export default function Display({ route }) {
         )}
 
         <View style={styles.join}>
-          <QRCode value={`QUEUELESS:${code}`} size={Math.round(160 * scale)} color={colors.ink} backgroundColor={colors.paper} />
+          <QrCard value={queueQr(code)} size={Math.round(140 * scale)} />
           <View style={styles.flex}>
             <Text style={[type.code, styles.ink, { letterSpacing: 4 }]}>{code}</Text>
             <Text style={[type.body, styles.pencil]}>Scan with Queueless, or enter this code.</Text>

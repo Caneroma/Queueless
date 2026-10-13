@@ -48,6 +48,14 @@
           "icon": "./assets/android-icon-foreground.png",
           "color": "#2453D4"
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
       ]
     ]
   }

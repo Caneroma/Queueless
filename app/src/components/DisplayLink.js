@@ -10,16 +10,20 @@ export default function DisplayLink({ code }) {
   const url = displayUrl(code);
   return (
     <View style={styles.row}>
-      <Text style={[type.caption, styles.link]} selectable>
-        Display for a TV: {url}
-      </Text>
+      <View style={styles.text}>
+        <Text style={[type.body, styles.ink]}>Shop display</Text>
+        <Text style={[type.caption, styles.link]} numberOfLines={1} selectable>
+          {url}
+        </Text>
+      </View>
       <BigButton label="Open display" variant="outline" height={48} onPress={() => window.open(url, '_blank')} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // Wraps under the button on a narrow window instead of cutting the link off.
-  row: { marginTop: space.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.md },
-  link: { flexGrow: 1, flexBasis: 200, color: colors.pencil },
+    row: { marginTop: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.md },
+  text: { flex: 1, minWidth: 0 },
+  ink: { color: colors.ink },
+  link: { color: colors.pencil },
 });
