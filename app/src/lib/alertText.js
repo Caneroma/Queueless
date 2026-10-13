@@ -1,19 +1,20 @@
-// One wording for an alert, shared by the in-app banner and the system notification.
+// Simple and clear alert wording for in-app banners and notifications.
 export function alertText(kind, ticket) {
   if (kind === 'leave') {
     return {
-      title: 'Time to head back',
-      body: `${ticket.queueName}. You are ${ticket.travelMin} min away, so leave now for number ${ticket.number}.`,
+      title: 'Time to head over',
+      body: `${ticket.queueName}: About ${ticket.travelMin} min away.`,
     };
   }
   if (kind === 'next') {
     return {
-      title: 'You are next',
-      body: `${ticket.queueName}. Number ${ticket.number} is called after the current one. Be ready.`,
+      title: `You are next (#${ticket.number})`,
+      body: `${ticket.queueName}: Get ready, you are called after the current number.`,
     };
   }
   return {
-    title: `Number ${ticket.number} is being called`,
-    body: `${ticket.queueName}. Go to the counter now.`,
+    title: `Your turn! (#${ticket.number})`,
+    body: `${ticket.queueName}: Please go to the counter now.`,
   };
 }
+

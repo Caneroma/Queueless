@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { StackActions } from '@react-navigation/native';
 import { buzz } from '../lib/buzzer';
 import * as haptics from '../lib/haptics';
-import { notifyCalled, notifyNext, onNotificationTap } from '../lib/notify';
+import { clearLiveQueue, notifyCalled, notifyNext, onNotificationTap, updateLiveQueue } from '../lib/notify';
 import { socket } from '../lib/socket';
 import { loadTickets, onTicketsChange } from '../lib/storage';
 import useLeaveAlerts from './useLeaveAlerts';
@@ -52,7 +52,12 @@ export default function useTicketAlerts(navigationRef) {
   useEffect(() => {
     if (!tickets.length) return undefined;
     const ids = new Set(tickets.map((t) => t.ticketId));
-    calling.current.forEach((_, id) => !ids.has(id) && calling.current.delete(id));
+    calling.current.forEach((_, id) => {
+      if (!ids.has(id)) {
+        calling.current.delete(id);
+        clearLiveQueue(id);
+      }
+    });
     upNext.current.forEach((id) => !ids.has(id) && upNext.current.delete(id));
 
     const announce = (ticket) => {
@@ -86,6 +91,9 @@ export default function useTicketAlerts(navigationRef) {
         .filter((t) => t.code === snapshot.code)
         .forEach((ticket) => {
           const isCalled = snapshot.serving === ticket.number;
+          const isActive = isCalled || snapshot.waiting.includes(ticket.number);
+          if (isActive) updateLiveQueue(ticket, snapshot);
+          else clearLiveQueue(ticket.ticketId);
           if (isCalled && !calling.current.has(ticket.ticketId)) {
             calling.current.set(ticket.ticketId, ticket);
             announce(ticket);

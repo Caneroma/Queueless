@@ -15,6 +15,7 @@ import { alertText } from './alertText';
 const SUPPORTED = !isRunningInExpoGo();
 
 const CHANNEL = 'called';
+const LIVE_CHANNEL = 'queue-live';
 let library = null;
 
 // Loaded on first use, and never in Expo Go.
@@ -24,13 +25,13 @@ function notifications() {
 }
 
 // Android needs a high-importance channel for the notification to pop up over other apps.
-async function ensureChannel() {
+async function ensureChannel(channel = CHANNEL) {
   if (Platform.OS !== 'android') return;
   const N = notifications();
-  await N.setNotificationChannelAsync(CHANNEL, {
-    name: 'Your turn',
-    importance: N.AndroidImportance.MAX,
-    vibrationPattern: [0, 300, 200, 300],
+  await N.setNotificationChannelAsync(channel, {
+    name: channel === LIVE_CHANNEL ? 'Queue updates' : 'Your turn',
+    importance: channel === LIVE_CHANNEL ? N.AndroidImportance.DEFAULT : N.AndroidImportance.MAX,
+    vibrationPattern: channel === LIVE_CHANNEL ? [] : [0, 300, 200, 300],
   });
 }
 
@@ -89,26 +90,36 @@ async function notifyNow(kind, ticket) {
 export const notifyCalled = (ticket) => notifyNow('called', ticket);
 export const notifyNext = (ticket) => notifyNow('next', ticket);
 
+const liveId = (ticketId) => `queue-live-${ticketId}`;
+
+function liveBody(ticket, snapshot) {
+  if (snapshot.serving === ticket.number) return 'Your turn now. Go to the counter.';
+  const ahead = snapshot.waiting.indexOf(ticket.number);
+  if (ahead < 0) return 'Queue status is being refreshed.';
+  const serving = snapshot.serving ? `Serving #${snapshot.serving}` : 'Queue is waiting to start';
+  return `${serving} - ${ahead} ${ahead === 1 ? 'person' : 'people'} ahead`;
+}
+
+export async function updateLiveQueue(ticket, snapshot) {
+  // Disabled to prevent double notifications. Notifications only fire when called.
+}
+
+export async function clearLiveQueue(ticketId) {
+  if (!SUPPORTED || Platform.OS !== 'android') return;
+  try {
+    await notifications().dismissNotificationAsync(liveId(ticketId));
+  } catch {
+    // The notification may already have been dismissed.
+  }
+}
+
 // A fixed identifier per ticket, so scheduling again replaces the earlier reminder instead of
 // stacking a second one, even after the app has been restarted.
 const reminderId = (ticketId) => `leave-${ticketId}`;
 
-// Asks the phone's own scheduler to say "time to head back" at `atMs`. It then arrives even if
-// the app has been suspended in the meantime (development or production builds only).
+// Disabled to ensure only the actual call notification is sent to the user.
 export async function scheduleLeaveReminder(ticket, atMs) {
-  if (!SUPPORTED) return;
-  const seconds = Math.ceil((atMs - Date.now()) / 1000);
-  if (seconds < 1) return;
-  try {
-    await ensureChannel();
-    await notifications().scheduleNotificationAsync({
-      identifier: reminderId(ticket.ticketId),
-      content: contentFor('leave', ticket),
-      trigger: { type: 'timeInterval', seconds, ...(Platform.OS === 'android' ? { channelId: CHANNEL } : {}) },
-    });
-  } catch {
-    // the in-app banner still fires while the app is open
-  }
+  // In-app banner still handles leave alerts via useLeaveAlerts
 }
 
 export async function cancelLeaveReminder(ticketId) {
