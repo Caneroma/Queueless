@@ -19,7 +19,7 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
-      "package": "com.kavyakumar00.queueless"
+      "package": "com.rijhan.queueless"
     },
     "web": {
       "bundler": "metro",
@@ -49,6 +49,12 @@
           "color": "#2453D4"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0633febd-bb7b-41da-8f1e-22609d34d630"
+      }
+    },
+    "owner": "rijhan"
   }
 }

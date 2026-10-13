@@ -15,6 +15,7 @@ import { alertText } from './alertText';
 const SUPPORTED = !isRunningInExpoGo();
 
 const CHANNEL = 'called';
+const LIVE_CHANNEL = 'queue-live';
 let library = null;
 
 // Loaded on first use, and never in Expo Go.
@@ -24,13 +25,13 @@ function notifications() {
 }
 
 // Android needs a high-importance channel for the notification to pop up over other apps.
-async function ensureChannel() {
+async function ensureChannel(channel = CHANNEL) {
   if (Platform.OS !== 'android') return;
   const N = notifications();
-  await N.setNotificationChannelAsync(CHANNEL, {
-    name: 'Your turn',
-    importance: N.AndroidImportance.MAX,
-    vibrationPattern: [0, 300, 200, 300],
+  await N.setNotificationChannelAsync(channel, {
+    name: channel === LIVE_CHANNEL ? 'Queue updates' : 'Your turn',
+    importance: channel === LIVE_CHANNEL ? N.AndroidImportance.DEFAULT : N.AndroidImportance.MAX,
+    vibrationPattern: channel === LIVE_CHANNEL ? [] : [0, 300, 200, 300],
   });
 }
 
@@ -83,6 +84,47 @@ export async function notifyCalled(ticket) {
     });
   } catch {
     // not permitted or unsupported: the banner covers the foreground case
+  }
+}
+
+const liveId = (ticketId) => `queue-live-${ticketId}`;
+
+function liveBody(ticket, snapshot) {
+  if (snapshot.serving === ticket.number) return 'Your turn now. Go to the counter.';
+  const ahead = snapshot.waiting.indexOf(ticket.number);
+  if (ahead < 0) return 'Queue status is being refreshed.';
+  const serving = snapshot.serving ? `Serving #${snapshot.serving}` : 'Queue is waiting to start';
+  return `${serving} - ${ahead} ${ahead === 1 ? 'person' : 'people'} ahead`;
+}
+
+export async function updateLiveQueue(ticket, snapshot) {
+  if (!SUPPORTED || Platform.OS !== 'android') return;
+  try {
+    await ensureChannel(LIVE_CHANNEL);
+    await notifications().scheduleNotificationAsync({
+      identifier: liveId(ticket.ticketId),
+      content: {
+        title: `${ticket.queueName} - #${ticket.number}`,
+        body: liveBody(ticket, snapshot),
+        sticky: true,
+        autoDismiss: false,
+        priority: 'default',
+        color: '#2453D4',
+        data: { ticketId: ticket.ticketId },
+      },
+      trigger: { channelId: LIVE_CHANNEL },
+    });
+  } catch {
+    // Unsupported OEM behavior or denied permission should not affect queue use.
+  }
+}
+
+export async function clearLiveQueue(ticketId) {
+  if (!SUPPORTED || Platform.OS !== 'android') return;
+  try {
+    await notifications().dismissNotificationAsync(liveId(ticketId));
+  } catch {
+    // The notification may already have been dismissed by the user or the system.
   }
 }
 
